@@ -5,14 +5,14 @@ import './SafeMath.sol';
 import './Ownable.sol';
 
 /**
- * @title CABCrowdsale
- * @dev CABCrowdsale is a completed contract for managing a token crowdsale.
- * CABCrowdsale have a start and end timestamps, where investors can make
- * token purchases and the CABCrowdsale will assign them tokens based
+ * @title CABoxCrowdsale
+ * @dev CABoxCrowdsale is a completed contract for managing a token crowdsale.
+ * CABoxCrowdsale have a start and end timestamps, where investors can make
+ * token purchases and the CABoxCrowdsale will assign them tokens based
  * on a token per ETH rate. Funds collected are forwarded to a wallet
  * as they arrive.
  */
-contract CABCrowdsale is Ownable{
+contract CABoxCrowdsale is Ownable{
     using SafeMath for uint256;
 
     // The token being sold
@@ -25,14 +25,8 @@ contract CABCrowdsale is Ownable{
     // address where funds are collected
     address public wallet;
 
-    // how many token units a buyer gets per wei
-    uint256 public rate;
-
-    // amount of raised money in wei
-    uint256 public weiRaised;
-
-    // amount of hard cap
-    uint256 public cap;
+    // address where development funds are collected
+    address public devWallet;
 
     /**
      * event for token purchase logging
@@ -47,15 +41,19 @@ contract CABCrowdsale is Ownable{
 
     event WalletAddressUpdated(bool state);
 
-    function CABCrowdsale() public {
-        token = CABoxToken(0xc363c1ebc630eb578d5e756373a108559808d1b1);
-        startTime = 1533859200;
-        endTime = 1544572800;
-        rate = 10000;
-        wallet = 0x21dbE958B2a7BeB4c8193d0B2EDec4c013D5Dfc7;
-        cap = 74000000000000000000000;
+    function CABoxCrowdsale() public {
+        token = createTokenContract();
+        startTime = 1535155200;
+        endTime = 1540771200;
+        wallet = 0x9BeAbD0aeB08d18612d41210aFEafD08fb84E9E8;
+        devWallet = 0x13dF1d8F51324a237552E87cebC3f501baE2e972;
     }
 
+    // creates the token to be sold.
+    // override this method to have crowdsale of a specific token.
+    function createTokenContract() internal returns (CABoxToken) {
+        return new CABoxToken();
+    }
 
     // fallback function can be used to buy tokens
     function () external payable {
@@ -70,54 +68,69 @@ contract CABCrowdsale is Ownable{
         uint256 weiAmount = msg.value;
 
         // calculate token amount to be created
-        uint256 tokens = weiAmount.mul(rate);
+        uint256 bonusRate = getBonusRate();
+        uint256 tokens = weiAmount.mul(bonusRate);
 
-        // update state
-        weiRaised = weiRaised.add(weiAmount);
-
-        token.mint(beneficiary, tokens);
+        token.transfer(beneficiary, tokens);
         TokenPurchase(msg.sender, beneficiary, weiAmount, tokens);
 
         forwardFunds();
     }
 
+    function getBonusRate() internal view returns (uint256) {
+        uint64[5] memory tokenRates = [uint64(24000),uint64(20000),uint64(16000),uint64(12000),uint64(8000)];
+
+        // apply bonus for time
+        uint64[5] memory timeStartsBoundaries = [uint64(1535155200),uint64(1538352000),uint64(1538956800),uint64(1539561600),uint64(1540166400)];
+        uint64[5] memory timeEndsBoundaries = [uint64(1538352000),uint64(1538956800),uint64(1539561600),uint64(1540166400),uint64(1540771200)];
+        uint[5] memory timeRates = [uint(500),uint(250),uint(200),uint(150),uint(100)];
+
+        uint256 bonusRate = tokenRates[0];
+
+        for (uint i = 0; i < 5; i++) {
+            bool timeInBound = (timeStartsBoundaries[i] <= now) && (now < timeEndsBoundaries[i]);
+            if (timeInBound) {
+                bonusRate = tokenRates[i] + tokenRates[i] * timeRates[i] / 1000;
+            }
+        }
+
+        return bonusRate;
+    }
+
     // send ether to the fund collection wallet
     // override to create custom fund forwarding mechanisms
     function forwardFunds() internal {
-        wallet.transfer(msg.value);
+        wallet.transfer(msg.value * 750 / 1000);
+        devWallet.transfer(msg.value * 250 / 1000);
     }
 
     // @return true if the transaction can buy tokens
     function validPurchase() internal view returns (bool) {
-        bool withinPeriod = now >= startTime && now <= endTime;
         bool nonZeroPurchase = msg.value != 0;
-        bool withinCap = weiRaised.add(msg.value) <= cap;
+        bool withinPeriod = now >= startTime && now <= endTime;
 
-        return withinPeriod && nonZeroPurchase && withinCap;
+        return nonZeroPurchase && withinPeriod;
     }
 
     // @return true if crowdsale event has ended
     function hasEnded() public view returns (bool) {
-        bool capReached = weiRaised >= cap;
         bool timeEnded = now > endTime;
 
-        return timeEnded || capReached;
+        return timeEnded;
     }
 
     // update token contract
     function updateCABoxToken(address _tokenAddress) onlyOwner{
         require(_tokenAddress != address(0));
-        token = CABoxToken(_tokenAddress);
+        token.transferOwnership(_tokenAddress);
 
         TokenContractUpdated(true);
     }
 
-    // update wallet address
-    function updateWalletAddress(address _newWallet) onlyOwner {
-        require(_newWallet != address(0));
-        wallet = _newWallet;
+    // transfer tokens
+    function transferTokens(address _to, uint256 _amount) onlyOwner {
+        require(_to != address(0));
 
-        WalletAddressUpdated(true);
+        token.transfer(_to, _amount);
     }
-
 }

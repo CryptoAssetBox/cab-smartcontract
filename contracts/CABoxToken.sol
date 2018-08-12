@@ -2,8 +2,6 @@ pragma solidity ^0.4.18;
 
 import './SafeMath.sol';
 import './Ownable.sol';
-import './Destructible.sol';
-
 /**
  * @title ERC20Basic
  * @dev Simpler version of ERC20 interface
@@ -150,53 +148,30 @@ contract StandardToken is ERC20, BasicToken {
 
 }
 
-
-
 /**
- * @title Mintable token
- * @dev Simple ERC20 Token example, with mintable token creation
+ * @title Burnable Token
+ * @dev Token that can be irreversibly burned (destroyed).
  */
-contract MintableToken is StandardToken, Ownable {
+contract BurnableToken is StandardToken {
 
-    uint256 public hardCap;
-
-    event Mint(address indexed to, uint256 amount);
-    event MintFinished();
-
-    bool public mintingFinished = false;
-
-
-    modifier canMint() {
-        require(!mintingFinished);
-        _;
-    }
+    event Burn(address indexed burner, uint256 value);
 
     /**
-     * @dev Function to mint tokens
-     * @param _to The address that will receive the minted tokens.
-     * @param _amount The amount of tokens to mint.
-     * @return A boolean that indicates if the operation was successful.
+     * @dev Burns a specific amount of tokens.
+     * @param _value The amount of token to be burned.
      */
-    function mint(address _to, uint256 _amount) onlyOwner canMint public returns (bool) {
-        totalSupply = totalSupply.add(_amount);
-        balances[_to] = balances[_to].add(_amount);
-        Mint(_to, _amount);
-        Transfer(address(0), _to, _amount);
-        return true;
-    }
+    function burn(uint256 _value) public {
+        require(_value > 0);
+        require(_value <= balances[msg.sender]);
+        // no need to require value <= totalSupply, since that would imply the
+        // sender's balance is greater than the totalSupply, which *should* be an assertion failure
 
-    /**
-     * @dev Function to stop minting new tokens.
-     * @return True if the operation was successful.
-     */
-    function finishMinting() onlyOwner canMint public returns (bool) {
-        mintingFinished = true;
-        MintFinished();
-        return true;
+        address burner = msg.sender;
+        balances[burner] = balances[burner].sub(_value);
+        totalSupply = totalSupply.sub(_value);
+        Burn(burner, _value);
     }
 }
-
-
 
 /**
  * @title CABoxToken
@@ -204,29 +179,19 @@ contract MintableToken is StandardToken, Ownable {
  * Note they can later distribute these tokens as they wish using `transfer` and other
  * `StandardToken` functions.
  */
-contract CABoxToken is MintableToken, Destructible {
+contract CABoxToken is BurnableToken, Ownable {
 
     string public constant name = "CABox";
     string public constant symbol = "CAB";
     uint8 public constant decimals = 18;
 
+    uint256 public constant INITIAL_SUPPLY = 500 * 1000000 * (10 ** uint256(decimals));
+
     /**
      * @dev Constructor that gives msg.sender all of existing tokens.
      */
     function CABoxToken() public {
-        hardCap = 1000 * 1000000 * (10 ** uint256(decimals));
-    }
-
-
-    /**
-     * @dev Function to mint tokens
-     * @param _to The address that will receive the minted tokens.
-     * @param _amount The amount of tokens to mint.
-     * @return A boolean that indicates if the operation was successful.
-     */
-    function mint(address _to, uint256 _amount) onlyOwner canMint public returns (bool) {
-        require(totalSupply.add(_amount) <= hardCap);
-
-        return super.mint(_to, _amount);
+        totalSupply = INITIAL_SUPPLY;
+        balances[msg.sender] = INITIAL_SUPPLY;
     }
 }
